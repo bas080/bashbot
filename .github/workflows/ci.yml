@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install prove (TAP::Harness)
+        run: sudo apt-get update -y && sudo apt-get install -y libtap-harness-perl
+
+      - name: Make scripts executable
+        run: chmod +x bashbot t/*.sh t/*.t
+
+      - name: Run prove tests
+        run: prove t/

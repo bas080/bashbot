@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+
+name='release'
+system='Release Readiness Checker - performing automated checks'
+success_flag='release_ready'

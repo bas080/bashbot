@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+
+name='manage'
+# shellcheck disable=SC2016
+system='You are a ticket manager.
+End your response with #manage_done# when you have done your work.
+See `did --help`'
+success_flag='manage_done'

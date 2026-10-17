@@ -1,0 +1,354 @@
+# Bashbot Implementation
+
+Bash bot allows piping together agents in bash. It does this using stdout and stdin.
+
+## Anatomy of a bash bot
+
+```bash
+agent [name] < stdin > stdout
+```
+
+- The `stdin` can be of other agents, test runner or files. It is just stdin.
+- The agent_fn can be named `code` or `review` or any role you think it needs. I like to use verbs.
+- An agent writes to stdout for other agents to use or for you to read.
+- The agent can have a name so it re-uses its session.
+- Some say it is good to output structured data. I decided on a very minimal xml.
+
+We will prefix functions with a `_underscore` to denote it is an internal. We'll try and keep that to a minimum.
+
+## Exit Codes
+
+We use the exit code 22 to signal that the failure was because of an agent saying that it failed but within its domain.
+We want literally any other exit code to result in the program exiting and just stop.
+
+```bash
+feedback() {
+  code | review || goto feedback
+}
+```
+
+# Goto
+
+The `divert` function is a little smart. It will only divert if exit code was 22 and otherwise it will not call `feedback`.
+Furthermore it's important that when a review fails 22 that the coder gets the result of the review. In this case it's pretty clear because it
+will receive that from the output of the review step. But what if the code fails. We need the coder to get its own feedback in that case.
+We can't have the stdin skip the review.
+
+
+```bash woven divert
+export BASHBOT_MAX_RETRIES=${BASHBOT_MAX_RETRIES:-10}
+
+divert() {
+  local exit_code="$?"
+
+  if [ "$exit_code" -ne 22 ]; then
+    return "$exit_code"
+  fi
+
+  local BASHBOT_RETRY_COUNT="${BASHBOT_RETRY_COUNT:-0}"
+
+  if [ "$BASHBOT_RETRY_COUNT" -gt "$BASHBOT_MAX_RETRIES" ]; then
+    echo "bashbot: max retries ($BASHBOT_MAX_RETRIES) exceeded for call args ($*), aborting loop" >&2
+
+    # Exit with a 22 but do no continue the loop. Outside loops can delegate more loops if desired.
+    return 22
+  fi
+
+  recollect | BASHBOT_RETRY_COUNT="$((BASHBOT_RETRY_COUNT + 1))" "$@"
+}
+
+
+# aliases
+goto() { divert "$@"; }
+redirect() { divert "$@"; }
+```
+
+## Collections
+
+You must have wondered what the `collect` does in the code you saw previously.
+
+At any moment memories can be collected to be recollected or forgotten at a later point to likely share with other agents or
+for reviewing or debugging the pipelines.
+
+```bash
+# Usage
+
+code-review() {
+  code | collect "iter-${1:-0}" | review || goto code-review "$(("${1:-1}" + 1))"
+}
+
+code-review | collect final-result
+
+recollect final-result
+recollect iter-0 # you can review the iterations
+recollect iter-1
+```
+
+By default a new collection is created every time the script is run. If you do not want that you can reference a specific collection
+with a name
+
+```bash
+collection; # Creates a new collection
+
+collection plan_phase # Will allow one to recollect items from that collection.
+
+recollect # Will recollect the last item pushed here. A recollect without an arg has special meaning because agents push here by default.
+```
+
+```bash woven collection
+# shellcheck disable=SC2016
+export BASHBOT_COLLECTION_FILEPATH_TEMPLATE='$HOME/.config/bashbot/collection/${BASHBOT_COLLECTION_NAME:-$RANDOM}'
+
+# shellcheck disable=SC2120
+collection() {
+  local BASHBOT_COLLECTION_NAME="$1"
+  eval "export BASHBOT_COLLECTION_FILEPATH=$BASHBOT_COLLECTION_FILEPATH_TEMPLATE"
+}
+
+# shellcheck disable=SC2120
+collect() {
+  local name="${1:-}"
+  tee "$BASHBOT_COLLECTION_FILEPATH$name" | sponge
+}
+
+forget() {
+  local name="${1:-}"
+  true > "$BASHBOT_COLLECTION_FILEPATH$name"
+}
+
+# shellcheck disable=SC2120
+recollect() {
+  local name="${1:-}"
+  cat "$BASHBOT_COLLECTION_FILEPATH$name"
+}
+
+# recollect alias
+recall() { recollect "$@"; }
+```
+
+
+## Sessions
+
+Agents tend to have a session or conversation history. This is managed by the code agent.
+
+We want to be able to say when an agent should re-use its session or create a new one.
+Just like with the memories.
+
+```bash
+# Example to create a new one off session within the subshell.
+# The reviewer outside the subshell will not use that session. It will keep using the one it has.
+(session; code-review-loop) | review
+
+# Create a named session. Subsequent runs will re-use that session for the code-review-loop.
+(session develop; code-review-loop) | review
+```
+
+```bash woven session
+# shellcheck disable=SC2016
+export BASHBOT_SESSION_FILEPATH_TEMPLATE='$HOME/.config/bashbot/session/${BASHBOT_SESSION_NAME:-$RANDOM}'
+
+# shellcheck disable=SC2120
+session() {
+  # Either a named session or create a new one (randomly).
+  local BASHBOT_SESSION_NAME="${1:-$RANDOM}"
+
+  eval "export BASHBOT_SESSION_FILEPATH=$BASHBOT_SESSION_FILEPATH_TEMPLATE"
+}
+```
+
+## Define a default agent
+
+We will store this file in this repository. We will make it reflect what it will look like on the system.
+
+```bash cat - > .config/bashbot/agent
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+filepath="$1"; shift # location of the role for bot
+
+id=""
+if [ -n "${2:-}" ]; then
+  id="$2"
+  shift 2
+fi
+
+filename="${filepath##*/}"
+
+# shellcheck disable=1090
+source "$filepath"
+
+session="$BASHBOT_SESSION_FILEPATH$filename$id"
+
+# Research if escaping text will confuse (smaller) models.
+xml_wrap() {
+  echo "<$1>"
+  cat - # | jq -Rr '@html' # You can xml escape the contents so botty is less likely to get confused. I hope...
+  echo "</$1>"
+}
+
+# Exits non zero if substring not found. Will still output all the stdin wrapped and then exit non zero.
+contains() {
+  local pattern="$1"
+  local result=22
+
+  while IFS= read -r line; do
+    if [[ "$line" == *"$pattern"* ]]; then
+      result=0
+    fi
+    echo "$line"
+  done
+
+  return $result
+}
+
+# Write this more concise
+if [ -f "$session" ]; then
+  # shellcheck disable=SC2154
+  pi --system-prompt "$system" --print --resume --session "$session" "$@" | xml_wrap "role-$filename-$id" | contains "$success_flag"
+else
+  # shellcheck disable=SC2154
+  pi --system-prompt "$system" --print --session "$session" "$@" | xml_wrap "role-$filename-$id" | contains "$success_flag"
+fi
+```
+
+## Reload
+
+Used to update the functions with changes in the roles directory.
+
+```bash woven reload
+export BASHBOT_ROLES_PATH="${BASHBOT_ROLES_PATH:-$HOME/.config/bashbot/roles}"
+
+# Function Templating
+# --------------
+
+reload() {
+
+  # shellcheck disable=SC1090
+  source <(
+    for filepath in "$BASHBOT_ROLES_PATH"/*; do
+      log <<< "Loaded $filepath"
+      # Get the role variables.
+      local filename="${filepath##*/}"
+
+      # Start the function body of the bot and a subshell
+      # The subshell is to prevent the variables in the bot definition
+      # file to leak out.
+      # shellcheck disable=2016
+      printf '%s() { "$BASHBOT_AGENT_FILEPATH" "%s" "$@" | tap-log; }; export -f "%s";\n' \
+        "$filename" \
+        "$filepath" \
+        "$filename"
+    done
+  )
+}
+```
+
+## When executed
+
+```bash woven when_executed
+
+# The bashbot executable was executed and not sourced
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]] && [[ ${#BASH_SOURCE[@]} -lt 2 ]]; then
+
+    # Was called with a file so run it as a script
+    test -f "$1" && {
+      source bashbot
+
+      # shellcheck disable=1090
+      source "$1"
+      exit "$?"
+    }
+
+    # Start an interactive thing
+    bash --rcfile <(
+
+      # shellcheck disable=SC2016
+      echo 'PS1="${BASHBOT_PS1:-"🤖 $PS1"}"'
+
+      # Tell it to source itself
+      echo 'source bashbot'
+    )
+
+    # The bash shell enhanced with bashbot has closed and we can now exit.
+    # We exit because we don't don't need it to register the functions down there.
+    exit
+fi
+
+# < when_sourced
+```
+
+## When sourced
+
+```bash woven when_sourced
+# < reload
+
+reload
+```
+
+## Log util
+
+```bash woven log_util
+log() {
+  while read -r line; do
+    echo "[bashbot] $line" >&2
+  done
+}
+
+tap-log() {
+  while read -r line; do
+    echo "[bashbot] $line" >&2
+    echo "$line"
+  done
+}
+
+export -f tap-log log
+```
+
+## Conclusion
+
+```bash WOVEN_PREFIX='# < ' woven > ./bashbot
+#!/usr/bin/env bash
+
+# shellcheck disable=SC2034
+test -z "$BASHBOT_DEBUG" || {
+  set -x
+}
+
+# Pipefail
+# --------
+set -o pipefail
+
+# Log util
+# --------
+
+# < log_util
+
+# When executed
+# -------------
+
+# < when_executed
+
+# Collections
+# -----------
+
+# < collection
+
+# Divert / Goto / Redirect
+# ------------------------
+
+# < divert
+
+# Sessions
+# --------
+
+# < session
+
+# Setup
+# -----
+
+export BASHBOT_AGENT_FILEPATH="${BASHBOT_AGENT_FILEPATH:-"$HOME/.config/bashbot/agent"}"
+
+session
+collection
+```

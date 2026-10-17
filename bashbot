@@ -1,0 +1,170 @@
+#!/usr/bin/env bash
+
+# shellcheck disable=SC2034
+test -z "$BASHBOT_DEBUG" || {
+  set -x
+}
+
+# Pipefail
+# --------
+set -o pipefail
+
+# Log util
+# --------
+
+log() {
+  while read -r line; do
+    echo "[bashbot] $line" >&2
+  done
+}
+
+tap-log() {
+  while read -r line; do
+    echo "[bashbot] $line" >&2
+    echo "$line"
+  done
+}
+
+export -f tap-log log
+
+# When executed
+# -------------
+
+
+# The bashbot executable was executed and not sourced
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]] && [[ ${#BASH_SOURCE[@]} -lt 2 ]]; then
+
+    # Was called with a file so run it as a script
+    test -f "$1" && {
+      source bashbot
+
+      # shellcheck disable=1090
+      source "$1"
+      exit "$?"
+    }
+
+    # Start an interactive thing
+    bash --rcfile <(
+
+      # shellcheck disable=SC2016
+      echo 'PS1="${BASHBOT_PS1:-"🤖 $PS1"}"'
+
+      # Tell it to source itself
+      echo 'source bashbot'
+    )
+
+    # The bash shell enhanced with bashbot has closed and we can now exit.
+    # We exit because we don't don't need it to register the functions down there.
+    exit
+fi
+
+export BASHBOT_ROLES_PATH="${BASHBOT_ROLES_PATH:-$HOME/.config/bashbot/roles}"
+
+# Function Templating
+# --------------
+
+reload() {
+
+  # shellcheck disable=SC1090
+  source <(
+    for filepath in "$BASHBOT_ROLES_PATH"/*; do
+      log <<< "Loaded $filepath"
+      # Get the role variables.
+      local filename="${filepath##*/}"
+
+      # Start the function body of the bot and a subshell
+      # The subshell is to prevent the variables in the bot definition
+      # file to leak out.
+      # shellcheck disable=2016
+      printf '%s() { "$BASHBOT_AGENT_FILEPATH" "%s" "$@" | tap-log; }; export -f "%s";\n' \
+        "$filename" \
+        "$filepath" \
+        "$filename"
+    done
+  )
+}
+
+reload
+
+# Collections
+# -----------
+
+# shellcheck disable=SC2016
+export BASHBOT_COLLECTION_FILEPATH_TEMPLATE='$HOME/.config/bashbot/collection/${BASHBOT_COLLECTION_NAME:-$RANDOM}'
+
+# shellcheck disable=SC2120
+collection() {
+  local BASHBOT_COLLECTION_NAME="$1"
+  eval "export BASHBOT_COLLECTION_FILEPATH=$BASHBOT_COLLECTION_FILEPATH_TEMPLATE"
+}
+
+# shellcheck disable=SC2120
+collect() {
+  local name="${1:-}"
+  tee "$BASHBOT_COLLECTION_FILEPATH$name" | sponge
+}
+
+forget() {
+  local name="${1:-}"
+  true > "$BASHBOT_COLLECTION_FILEPATH$name"
+}
+
+# shellcheck disable=SC2120
+recollect() {
+  local name="${1:-}"
+  cat "$BASHBOT_COLLECTION_FILEPATH$name"
+}
+
+# recollect alias
+recall() { recollect "$@"; }
+
+# Divert / Goto / Redirect
+# ------------------------
+
+export BASHBOT_MAX_RETRIES=${BASHBOT_MAX_RETRIES:-10}
+
+divert() {
+  local exit_code="$?"
+
+  if [ "$exit_code" -ne 22 ]; then
+    return "$exit_code"
+  fi
+
+  local BASHBOT_RETRY_COUNT="${BASHBOT_RETRY_COUNT:-0}"
+
+  if [ "$BASHBOT_RETRY_COUNT" -gt "$BASHBOT_MAX_RETRIES" ]; then
+    echo "bashbot: max retries ($BASHBOT_MAX_RETRIES) exceeded for call args ($*), aborting loop" >&2
+
+    # Exit with a 22 but do no continue the loop. Outside loops can delegate more loops if desired.
+    return 22
+  fi
+
+  recollect | BASHBOT_RETRY_COUNT="$((BASHBOT_RETRY_COUNT + 1))" "$@"
+}
+
+
+# aliases
+goto() { divert "$@"; }
+redirect() { divert "$@"; }
+
+# Sessions
+# --------
+
+# shellcheck disable=SC2016
+export BASHBOT_SESSION_FILEPATH_TEMPLATE='$HOME/.config/bashbot/session/${BASHBOT_SESSION_NAME:-$RANDOM}'
+
+# shellcheck disable=SC2120
+session() {
+  # Either a named session or create a new one (randomly).
+  local BASHBOT_SESSION_NAME="${1:-$RANDOM}"
+
+  eval "export BASHBOT_SESSION_FILEPATH=$BASHBOT_SESSION_FILEPATH_TEMPLATE"
+}
+
+# Setup
+# -----
+
+export BASHBOT_AGENT_FILEPATH="${BASHBOT_AGENT_FILEPATH:-"$HOME/.config/bashbot/agent"}"
+
+session
+collection

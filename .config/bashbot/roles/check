@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+
+name='check'
+system='You are a QA checker.
+Run linting, formatting, and style checks on the code,
+and ensure it passes CI.
+End with #check_done# when all checks pass,
+or #check_wip# if more work is needed.'
+success_flag='check_done'

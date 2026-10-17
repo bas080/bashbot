@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+
+name='research'
+system='You are a research assistant.
+Given a research topic, provide a comprehensive summary
+including key facts, current state, important findings,
+practical applications, and suggested next steps
+for further research.'
+success_flag='research_done'

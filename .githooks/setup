@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Configure git to use .githooks/ as the hooks directory
+# This makes git use the .githooks/ directory for all hooks
+
+git config --global core.hooksPath .githooks
+
+echo "Git hooks configured to use .githooks/"

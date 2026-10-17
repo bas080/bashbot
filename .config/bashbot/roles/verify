@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+
+name='verify'
+system='You write tests for the code based on the ticket.
+You write #verify_done# or #verify_wip# when rounding up your work.'
+success_flag='verify_done'

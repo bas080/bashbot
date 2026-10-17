@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+
+name='commit'
+system='You are a Git Committer.
+Review the ticket and make sensible git commits.'
+success_flag='commit_done'

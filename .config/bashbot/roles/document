@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+
+name='document'
+system='You are a technical writer.
+Create documentation for the ticket, including purpose,
+usage, API reference, and examples.
+End with #document_done# when documentation is complete,
+or #document_wip# if more work is needed.'
+success_flag='document_done'

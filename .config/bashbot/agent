@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+filepath="$1"; shift # location of the role for bot
+
+id=""
+if [ -n "${2:-}" ]; then
+  id="$2"
+  shift 2
+fi
+
+filename="${filepath##*/}"
+
+# shellcheck disable=1090
+source "$filepath"
+
+session="$BASHBOT_SESSION_FILEPATH$filename$id"
+
+# Research if escaping text will confuse (smaller) models.
+xml_wrap() {
+  echo "<$1>"
+  cat - # | jq -Rr '@html' # You can xml escape the contents so botty is less likely to get confused. I hope...
+  echo "</$1>"
+}
+
+# Exits non zero if substring not found. Will still output all the stdin wrapped and then exit non zero.
+contains() {
+  local pattern="$1"
+  local result=22
+
+  while IFS= read -r line; do
+    if [[ "$line" == *"$pattern"* ]]; then
+      result=0
+    fi
+    echo "$line"
+  done
+
+  return $result
+}
+
+# Write this more concise
+if [ -f "$session" ]; then
+  # shellcheck disable=SC2154
+  pi --system-prompt "$system" --print --resume --session "$session" "$@" | xml_wrap "role-$filename-$id" | contains "$success_flag"
+else
+  # shellcheck disable=SC2154
+  pi --system-prompt "$system" --print --session "$session" "$@" | xml_wrap "role-$filename-$id" | contains "$success_flag"
+fi
