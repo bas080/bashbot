@@ -58,8 +58,14 @@ develop | tee >(test -f ./design-document.md && ux) | review
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
 | `BASHBOT_DEBUG` | When set to any non-empty value, enables shell tracing (`set -x`) in `bashbot` | Unset | No |
-| `BASHBOT_SESSION_FILEPATH` | Base path for session files used by roles. | `$HOME/.config/bashbot/session/` | No |
-| `BASHBOT_COLLECTION_FILEPATH` | Base path for collection files used to store artifacts. | `$HOME/.config/bashbot/collection/` | No |
+| `BASHBOT_SESSION_FILEPATH_TEMPLATE` | Template for session file paths. `$BASHBOT_SESSION_NAME` is substituted at runtime. | `$HOME/.config/bashbot/session/${BASHBOT_SESSION_NAME:-$RANDOM}` | No |
+| `BASHBOT_SESSION_FILEPATH` | Resolved session file path (derived from template). | — | No |
+| `BASHBOT_COLLECTION_FILEPATH_TEMPLATE` | Template for collection file paths. `$BASHBOT_COLLECTION_NAME` is substituted at runtime. | `$HOME/.config/bashbot/collection/${BASHBOT_COLLECTION_NAME:-$RANDOM}` | No |
+| `BASHBOT_COLLECTION_FILEPATH` | Resolved collection file path (derived from template). | — | No |
+| `BASHBOT_ROLES_PATH` | Base path for role files. | `$HOME/.config/bashbot/roles` | No |
+| `BASHBOT_AGENT_FILEPATH` | Path to the agent executable. | `$HOME/.config/bashbot/agent` | No |
+| `BASHBOT_PS1` | Custom prompt string for interactive shell (prepends to existing PS1). | `🤖 ` | No |
+| `BASHBOT_MAX_RETRIES` | Maximum retry attempts for divert/goto loops. | `10` | No |
 
 ## License
 
