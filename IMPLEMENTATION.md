@@ -263,6 +263,10 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]] && [[ ${#BASH_SOURCE[@]} -lt 2 ]]; then
     # Start an interactive thing
     bash --rcfile <(
 
+      # Pipefail
+      # --------
+      echo 'set -o pipefail'
+
       # shellcheck disable=SC2016
       echo 'PS1="${BASHBOT_PS1:-"🤖 $PS1"}"'
 
@@ -314,10 +318,6 @@ export -f tap-log log
 test -z "$BASHBOT_DEBUG" || {
   set -x
 }
-
-# Pipefail
-# --------
-set -o pipefail
 
 # Log util
 # --------
